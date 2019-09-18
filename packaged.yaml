@@ -1,0 +1,633 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: 'The SAM template for the React Amplify Notes App
+
+  '
+Parameters:
+  SwaggerBucketName:
+    Type: String
+    Description: The name of the S3 bucket in which the Swagger specification is stored
+  StageName:
+    Type: String
+    Description: The name of the stage, e.g. "dev", "preprod", "prod"
+    Default: default
+  ApiHostName:
+    Type: String
+    Description: The url that will be used in the swagger file e.g. "api.mysite.com"
+  NotesTableName:
+    Type: String
+    Description: The name of the DynamoDB table to store notes in
+    Default: notes
+  AmplifyNotesSiteBucketName:
+    Type: String
+    Description: Name of the public S3 bucket to place the front end application
+  AmplifyNotesAttachmentsBucketName:
+    Type: String
+    Description: Name of the S3 bucket that will store the note attachments
+Globals:
+  Function:
+    Timeout: 3
+Resources:
+  AmplifyNotesApi:
+    Type: AWS::Serverless::Api
+    DependsOn: AmplifyNotesUserPool
+    Properties:
+      Name:
+        Fn::Sub: amplify-notes-api-${StageName}
+      StageName:
+        Ref: StageName
+      Auth:
+        Authorizers:
+          MyCognitoAuthorizer:
+            UserPoolArn:
+              Fn::GetAtt:
+              - AmplifyNotesUserPool
+              - Arn
+      DefinitionBody:
+        Fn::Transform:
+          Name: AWS::Include
+          Parameters:
+            Location:
+              Fn::Join:
+              - ''
+              - - s3://
+                - Ref: SwaggerBucketName
+                - /notes-swagger-api-gateway.yaml
+  AmplifyNotesApiBasePath:
+    Type: AWS::ApiGateway::BasePathMapping
+    DependsOn: AmplifyNotesApi
+    Properties:
+      BasePath:
+        Ref: StageName
+      DomainName:
+        Ref: ApiHostName
+      RestApiId:
+        Ref: AmplifyNotesApi
+      Stage:
+        Ref: AmplifyNotesApi.Stage
+  ListNotesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: amplify-notes-${StageName}-list-notes
+      CodeUri: s3://thedbninja-sam-notes/35756e383a8b45f4c455623e3a79493b
+      Handler: listnotes.lambda_handler
+      Runtime: python3.7
+      Policies:
+      - DynamoDBReadPolicy:
+          TableName:
+            Ref: NotesTableName
+      Environment:
+        Variables:
+          TABLE_NAME:
+            Ref: NotesTableName
+      Events:
+        Get:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: AmplifyNotesApi
+            Path: /notes
+            Method: GET
+  CreateNoteFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: amplify-notes-${StageName}-create-note
+      CodeUri: s3://thedbninja-sam-notes/35756e383a8b45f4c455623e3a79493b
+      Handler: createnote.lambda_handler
+      Runtime: python3.7
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: NotesTableName
+      Environment:
+        Variables:
+          TABLE_NAME:
+            Ref: NotesTableName
+      Events:
+        Get:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: AmplifyNotesApi
+            Path: /notes
+            Method: POST
+  GetNoteFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: amplify-notes-${StageName}-get-note
+      CodeUri: s3://thedbninja-sam-notes/35756e383a8b45f4c455623e3a79493b
+      Handler: getnote.lambda_handler
+      Runtime: python3.7
+      Policies:
+      - DynamoDBReadPolicy:
+          TableName:
+            Ref: NotesTableName
+      Environment:
+        Variables:
+          TABLE_NAME:
+            Ref: NotesTableName
+      Events:
+        Get:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: AmplifyNotesApi
+            Path: /notes/{id}
+            Method: GET
+  UpdateNoteFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: amplify-notes-${StageName}-update-note
+      CodeUri: s3://thedbninja-sam-notes/35756e383a8b45f4c455623e3a79493b
+      Handler: updatenote.lambda_handler
+      Runtime: python3.7
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: NotesTableName
+      Environment:
+        Variables:
+          TABLE_NAME:
+            Ref: NotesTableName
+      Events:
+        Get:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: AmplifyNotesApi
+            Path: /notes/{id}
+            Method: PUT
+  DeleteNoteFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: amplify-notes-${StageName}-delete-note
+      CodeUri: s3://thedbninja-sam-notes/35756e383a8b45f4c455623e3a79493b
+      Handler: listnotes.lambda_handler
+      Runtime: python3.7
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: NotesTableName
+      Environment:
+        Variables:
+          TABLE_NAME:
+            Ref: NotesTableName
+      Events:
+        Get:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: AmplifyNotesApi
+            Path: /notes/{id}
+            Method: DELETE
+  NotesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName:
+        Ref: NotesTableName
+      AttributeDefinitions:
+      - AttributeName: userId
+        AttributeType: S
+      - AttributeName: noteId
+        AttributeType: S
+      KeySchema:
+      - AttributeName: userId
+        KeyType: HASH
+      - AttributeName: noteId
+        KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+      SSESpecification:
+        SSEEnabled: true
+  AmplifyNotesAttachmentBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName:
+        Ref: AmplifyNotesAttachmentsBucketName
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256
+      CorsConfiguration:
+        CorsRules:
+        - AllowedHeaders:
+          - '*'
+          AllowedOrigins:
+          - '*'
+          AllowedMethods:
+          - GET
+          - PUT
+          - POST
+          - HEAD
+          - DELETE
+          ExposedHeaders:
+          - x-amz-server-side-encryption
+          - x-amz-request-id
+          - x-amz-id-2
+          - ETag
+          MaxAge: 3000
+      AccessControl: Private
+  AmplifyNotesSiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName:
+        Ref: AmplifyNotesSiteBucketName
+      AccessControl: PublicRead
+      WebsiteConfiguration:
+        ErrorDocument: index.html
+        IndexDocument: index.html
+  AmplifyNotesSiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    DependsOn: AmplifyNotesSiteBucket
+    Properties:
+      Bucket:
+        Ref: AmplifyNotesSiteBucket
+      PolicyDocument:
+        Statement:
+        - Action:
+          - s3:GetObject
+          Effect: Allow
+          Resource:
+            Fn::Join:
+            - ''
+            - - 'arn:aws:s3:::'
+              - Ref: AmplifyNotesSiteBucket
+              - /*
+          Principal: '*'
+  AmplifyNotesIdentityPoolAuthenticatedRole:
+    Type: AWS::IAM::Role
+    DependsOn:
+    - AmplifyNotesIdentityPool
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Federated:
+            - cognito-identity.amazonaws.com
+          Action:
+          - sts:AssumeRoleWithWebIdentity
+          Condition:
+            StringEquals:
+              cognito-identity.amazonaws.com:aud:
+                Ref: AmplifyNotesIdentityPool
+            ForAnyValue:StringLike:
+              cognito-identity.amazonaws.com:amr: authenticated
+      Path: /
+      RoleName: AmplifyNotesAuthRole
+  AmplifyNotesAuthenticatedPolicy:
+    Type: AWS::IAM::Policy
+    DependsOn:
+    - AmplifyNotesIdentityPoolAuthenticatedRole
+    Properties:
+      PolicyName: AmplifyNotesAuthPolicy
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+          - mobileanalytics:PutEvents
+          - cognito-sync:*
+          - cognito-identity:*
+          Resource: '*'
+        - Effect: Allow
+          Action:
+          - execute-api:Invoke
+          Resource:
+          - Fn::Join:
+            - ''
+            - - 'arn:aws:execute-api:'
+              - Ref: AWS::Region
+              - ':'
+              - Ref: AWS::AccountId
+              - ':'
+              - Ref: AmplifyNotesApi
+              - /
+              - Ref: StageName
+              - /*
+      Roles:
+      - Ref: AmplifyNotesIdentityPoolAuthenticatedRole
+  AmplifyNotesS3AuthenticatedPolicy:
+    Type: AWS::IAM::Policy
+    DependsOn:
+    - AmplifyNotesIdentityPoolAuthenticatedRole
+    Properties:
+      PolicyName: AmplifyNotesS3AuthPolicy
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Action:
+          - s3:GetObject
+          - s3:PutObject
+          - s3:DeleteObject
+          Resource:
+          - Fn::Join:
+            - ''
+            - - Fn::GetAtt:
+                - AmplifyNotesAttachmentBucket
+                - Arn
+              - /public/*
+          - Fn::Join:
+            - ''
+            - - Fn::GetAtt:
+                - AmplifyNotesAttachmentBucket
+                - Arn
+              - /protected/${cognito-identity.amazonaws.com:sub}/*
+          - Fn::Join:
+            - ''
+            - - Fn::GetAtt:
+                - AmplifyNotesAttachmentBucket
+                - Arn
+              - /private/${cognito-identity.amazonaws.com:sub}/*
+          Effect: Allow
+        - Action:
+          - s3:PutObject
+          Resource:
+          - Fn::Join:
+            - ''
+            - - Fn::GetAtt:
+                - AmplifyNotesAttachmentBucket
+                - Arn
+              - /uploads/*
+          Effect: Allow
+        - Action:
+          - s3:GetObject
+          Resource:
+          - Fn::Join:
+            - ''
+            - - Fn::GetAtt:
+                - AmplifyNotesAttachmentBucket
+                - Arn
+              - /protected/*
+          Effect: Allow
+        - Condition:
+            StringLike:
+              s3:prefix:
+              - public/
+              - public/*
+              - protected/
+              - protected/*
+              - private/${cognito-identity.amazonaws.com:sub}/
+              - private/${cognito-identity.amazonaws.com:sub}/*
+          Action:
+          - s3:ListBucket
+          Resource:
+          - Fn::GetAtt:
+            - AmplifyNotesAttachmentBucket
+            - Arn
+          Effect: Allow
+      Roles:
+      - Ref: AmplifyNotesIdentityPoolAuthenticatedRole
+  AmplifyNotesIdentityPoolUnauthenticatedRole:
+    Type: AWS::IAM::Role
+    DependsOn:
+    - AmplifyNotesIdentityPool
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Federated:
+            - cognito-identity.amazonaws.com
+          Action:
+          - sts:AssumeRoleWithWebIdentity
+          Condition:
+            StringEquals:
+              cognito-identity.amazonaws.com:aud:
+                Ref: AmplifyNotesIdentityPool
+            ForAnyValue:StringLike:
+              cognito-identity.amazonaws.com:amr: unauthenticated
+      Path: /
+      RoleName: AmplifyNotesUnauthRole
+  AmplifyNotesUnauthenticatedPolicy:
+    Type: AWS::IAM::Policy
+    DependsOn:
+    - AmplifyNotesIdentityPoolUnauthenticatedRole
+    Properties:
+      PolicyName: AmplifyNotesUnauthPolicy
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+          - mobileanalytics:PutEvents
+          - cognito-sync:*
+          Resource: '*'
+      Roles:
+      - Ref: AmplifyNotesIdentityPoolUnauthenticatedRole
+  AmplifyNotesS3UnauthenticatedPolicy:
+    Type: AWS::IAM::Policy
+    DependsOn:
+    - AmplifyNotesIdentityPoolUnauthenticatedRole
+    Properties:
+      PolicyName: AmplifyNotesS3UnauthPolicy
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Action:
+          - s3:GetObject
+          - s3:PutObject
+          - s3:DeleteObject
+          Resource:
+          - Fn::Join:
+            - ''
+            - - Fn::GetAtt:
+                - AmplifyNotesAttachmentBucket
+                - Arn
+              - /public/*
+          Effect: Allow
+        - Action:
+          - s3:PutObject
+          Resource:
+          - Fn::Join:
+            - ''
+            - - Fn::GetAtt:
+                - AmplifyNotesAttachmentBucket
+                - Arn
+              - /uploads/*
+          Effect: Allow
+        - Action:
+          - s3:GetObject
+          Resource:
+          - Fn::Join:
+            - ''
+            - - Fn::GetAtt:
+                - AmplifyNotesAttachmentBucket
+                - Arn
+              - /protected/*
+          Effect: Allow
+        - Condition:
+            StringLike:
+              s3:prefix:
+              - public/
+              - public/*
+              - protected/
+              - protected/*
+          Action:
+          - s3:ListBucket
+          Resource:
+          - Fn::GetAtt:
+            - AmplifyNotesAttachmentBucket
+            - Arn
+          Effect: Allow
+      Roles:
+      - Ref: AmplifyNotesIdentityPoolUnauthenticatedRole
+  AmplifyNotesUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: false
+      AutoVerifiedAttributes:
+      - email
+      MfaConfiguration: 'OFF'
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 6
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+          RequireUppercase: true
+          TemporaryPasswordValidityDays: 1
+      Schema:
+      - AttributeDataType: String
+        DeveloperOnlyAttribute: false
+        Mutable: true
+        Name: name
+        Required: true
+      UserPoolName: AmplifyNotesUserPool
+      AliasAttributes:
+      - preferred_username
+  AmplifyNotesUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    DependsOn:
+    - AmplifyNotesUserPool
+    Properties:
+      ClientName: AmplifyNotesClient
+      GenerateSecret: false
+      UserPoolId:
+        Ref: AmplifyNotesUserPool
+  AmplifyNotesIdentityPool:
+    Type: AWS::Cognito::IdentityPool
+    DependsOn:
+    - AmplifyNotesUserPoolClient
+    - AmplifyNotesUserPool
+    Properties:
+      AllowUnauthenticatedIdentities: true
+      CognitoIdentityProviders:
+      - ClientId:
+          Ref: AmplifyNotesUserPoolClient
+        ProviderName:
+          Fn::GetAtt:
+          - AmplifyNotesUserPool
+          - ProviderName
+        ServerSideTokenCheck: false
+      IdentityPoolName: AmplifyNotesIdPool
+  AmplifyNotesIdentityPoolRoleAttachment:
+    Type: AWS::Cognito::IdentityPoolRoleAttachment
+    DependsOn:
+    - AmplifyNotesIdentityPool
+    - AmplifyNotesIdentityPoolAuthenticatedRole
+    - AmplifyNotesIdentityPoolUnauthenticatedRole
+    Properties:
+      IdentityPoolId:
+        Ref: AmplifyNotesIdentityPool
+      Roles:
+        authenticated:
+          Fn::GetAtt:
+          - AmplifyNotesIdentityPoolAuthenticatedRole
+          - Arn
+        unauthenticated:
+          Fn::GetAtt:
+          - AmplifyNotesIdentityPoolUnauthenticatedRole
+          - Arn
+  AmplifyNotesApiUsagePlan:
+    Type: AWS::ApiGateway::UsagePlan
+    DependsOn:
+    - AmplifyNotesApi
+    Properties:
+      ApiStages:
+      - ApiId:
+          Ref: AmplifyNotesApi
+        Stage:
+          Ref: AmplifyNotesApi.Stage
+      Description: API Key to limit usage
+      Quota:
+        Limit: 300
+        Period: DAY
+      Throttle:
+        BurstLimit: 10
+        RateLimit: 5
+      UsagePlanName:
+        Fn::Join:
+        - ''
+        - - Amplify_Notes_Usage_Plan_
+          - Ref: StageName
+  AmplifyNotesApiKey:
+    Type: AWS::ApiGateway::ApiKey
+    DependsOn:
+    - AmplifyNotesApi
+    Properties:
+      Name: AmplifyNotesApiKey
+      Description: CloudFormation API Key V1
+      Enabled: 'true'
+      StageKeys:
+      - RestApiId:
+          Ref: AmplifyNotesApi
+        StageName:
+          Ref: AmplifyNotesApi.Stage
+  ApiUsagePlanKey:
+    Type: AWS::ApiGateway::UsagePlanKey
+    DependsOn:
+    - AmplifyNotesApiUsagePlan
+    - AmplifyNotesApiKey
+    Properties:
+      KeyId:
+        Ref: AmplifyNotesApiKey
+      KeyType: API_KEY
+      UsagePlanId:
+        Ref: AmplifyNotesApiUsagePlan
+Outputs:
+  Region:
+    Description: Region of the deployed app
+    Value:
+      Ref: AWS::Region
+  ApiUrl:
+    Description: API URL
+    Value:
+      Fn::Join:
+      - ''
+      - - https://
+        - Ref: ApiHostName
+        - /
+        - Ref: StageName
+  ApiKey:
+    Description: AWS CLI command to get API key value
+    Value:
+      Fn::Join:
+      - ''
+      - - 'aws apigateway get-api-key --include-value --api-key '
+        - Ref: AmplifyNotesApiKey
+  UserPoolId:
+    Description: ID of the User Pool
+    Value:
+      Ref: AmplifyNotesUserPool
+  AppClientId:
+    Description: Cognito User Pool App Client ID
+    Value:
+      Ref: AmplifyNotesUserPoolClient
+  IdentityPoolId:
+    Description: ID of the Identity Pool connected to the user pool
+    Value:
+      Ref: AmplifyNotesIdentityPool
+  AttachmentBucket:
+    Description: S3 Bucket name for note attachments
+    Value:
+      Ref: AmplifyNotesAttachmentsBucketName
