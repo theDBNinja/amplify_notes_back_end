@@ -4,7 +4,7 @@ This application was inspired by the tutorial on https://serverless-stack.com/
 
 The lambda functions from the tutorial have been re-written using Python from Node.js.
 
-The code in this project is only the backend infrastructure of the application. The front end is in the [notes_react_amplify_auth](https://github.com/theDbNinja/notes_react_amplify_auth) repo.
+The code in this project is only the backend infrastructure of the application. The front end is in the [amplify_notes_front_end](https://github.com/theDbNinja/amplify_notes_front_end) repo.
 
 This backend code will need to be created in order to provide the configuration details in the front end's config.js file.
 
